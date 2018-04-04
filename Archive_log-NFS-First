@@ -1,0 +1,59 @@
+#! /bin/bash
+
+# NFS copy log
+# Archive_log.sh /path/to/local/log TipeOfService
+
+# Spostamento log su share
+# 10.10.1.2:/share/Archive_log
+
+
+#Variables
+# scp connection
+SSHHOSTNAME="10.10.1.2"
+SSHUSERNAME="user"
+SSHPASSWORD="password"
+export SSHPASS=$SSHPASSWORD
+
+
+giorno="$(date '+%d-%m-%y')"
+SERVICE="$2"
+
+# Directori definition
+LOCAL_LOG_DIR="$1"
+OLD_LOG="$LOCAL_LOG_DIR/OLD"
+Backup_dir_log="/share/Archive_log/$HOSTNAME"
+Log_file="/tmp/$HOSTNAME-$giorno.log"
+
+touch "$Log_file"
+
+
+echo "############################ " >> $Log_file
+echo " " >> $Log_file
+echo "inizio script: $(date '+%H:%M:%S')" >> $Log_file
+echo " " >> $Log_file
+
+
+
+if [ -d "$OLD_LOG" ]; then
+	echo " cartella OLD esistente " >> $Log_file
+	num_file="$(find "$LOCAL_LOG_DIR" -mtime +30 -a -mtime -600 |wc -l)"
+	find "$LOCAL_LOG_DIR" -mtime +30 -a -mtime -600 -exec mv -f {} "$OLD_LOG" \;
+	echo "sono stati copiati $num_file file in $OLD_LOG" >> $Log_file
+else
+	echo "la dir dei log non esiste" >> $Log_file
+	mkdir "$OLD_LOG"
+	echo " cartella OLD Creata " >> $Log_file
+	num_file="$(find "$LOCAL_LOG_DIR" -mtime +30 -a -mtime -600 |wc -l)"
+	find "$LOCAL_LOG_DIR" -mtime +30 -a -mtime -600 -exec mv -f {} "$Backup_dir_log" \;
+	echo "sono stati copiati $num_file file in $Backup_dir_log" >> $Log_file
+fi
+
+
+scp -r "$OLD_LOG/*" $SSHUSERNAME@$SSHHOSTNAME:$Backup_dir_log/$SERVICE
+
+echo " " >> $Log_file
+echo "fine script: $(date '+%H:%M:%S')" >> $Log_file
+echo " " >> $Log_file
+echo "############################ " >> $Log_file
+
+export SSHPASS="HeLlO.O"

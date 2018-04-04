@@ -1,0 +1,140 @@
+#! /bin/bash
+
+# Archive Log From destination to source
+#
+# Usage: Archive_Log -f List_Host [-l Log_File]
+#     -f, --file 				File With hosts and Logs to collect
+# 	  -d, --dir					Local Folder To Collect Logs [default=/var/log/Archive_log/]
+#     -l, --log 				Log file for script [default=/var/log/Archive_log.log]
+#     -h, --help 				Display this screen
+#
+# Example File: --- NO EMPTY LINE --- 
+# IP - path - hostname
+# 10.10.1.8 - /var/log/httpd - vbe-backup-prod01 - httpd
+# 10.10.2.5 - /var/log/ - vlb-app-prod01.csm.it - log
+
+# (c) 2018, Edoardo Marchetti <marchetti.edoardo@gmail.com>
+# https://github.com/jas31085/Libra_310-Script-Collection
+#
+
+# -----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+
+# ssh source1 < Execute remote script 
+# create execute and remove remote ssh script in local /tmp 
+function RemoteScript() {
+	
+# create script remote /tmp/Archive_log.sh
+	echo '#! /bin/bash'  >> "/tmp/$RemoteHost.sh"
+	echo "cd $remotePath"  >> "/tmp/$RemoteHost.sh"
+#  for removing OLD Logs already copied uncomment this
+	# echo "if [[ -d "OLD" ]]; then"  >> "/tmp/$RemoteHost.sh"
+	# echo "	rm -rf OLD"  >> "/tmp/$RemoteHost.sh"
+	# echo "fi"  >> "/tmp/$RemoteHost.sh"
+	echo "mkdir -p OLD" >> "/tmp/$RemoteHost.sh"	
+	echo "find . -mtime +7 -a -mtime -600 -exec mv {} OLD/ \;" >> "/tmp/$RemoteHost.sh"
+
+# execute remote /tmp/Archive_log.sh
+	echo "- Start SSH script"	>> $Log_file
+
+	sshpass -p $SSHPASSWORD ssh $SSHUSERNAME@$address < "/tmp/$RemoteHost.sh"
+
+	echo "- SSH script eseguito: $?"	>> $Log_file
+	rm -rf "/tmp/$RemoteHost.sh"
+}
+
+# -----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+
+# # sshpass -p $SSHPASSWORD scp source Destination
+function CopyLog() {
+
+	Destination="$LocalLogFolder/$RemoteHost/$Service"
+	mkdir -p "$Destination"
+	CountLogFile="$(ls -l $Destination| wc -l)"
+
+	last="$(echo "$remotePath" |sed -e 's/.*\(.\)$/\1/')"
+	 if [[ "$last" == "/" ]]; then
+	 	sshpass -p "$SSHPASSWORD" scp "$SSHUSERNAME"@"$address":"$remotePath""OLD/*" "$Destination"
+	 	echo "- SCP File eseguito: $?"	>> $Log_file
+	 else
+	 	sshpass -p "$SSHPASSWORD" scp "$SSHUSERNAME"@"$address":"$remotePath""/OLD/*" "$Destination"
+	 	echo "- SCP File eseguito: $?"	>> $Log_file
+	 fi
+
+	CountLogFile=$(expr $(ls -l $Destination| wc -l) - $CountLogFile)
+	echo "- Numero file Copiati: $CountLogFile"	>> $Log_file
+}
+
+# -----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+
+
+# DEFINE User and password for ssh connnection
+SSHUSERNAME="user"
+SSHPASSWORD='password'
+giorno="$(date '+%d-%m-%y')"
+Log_file="/var/log/Archive_log.log"
+LocalLogFolder="/var/log/Archive_log"
+
+if [[ $# -eq 0 ]] ; then
+	sed -n '2,17p' "$0" | tr -d '#'
+	exit 3
+fi
+
+while [[ -n "$1" ]]; do
+  case $1 in
+    --file | -f)
+		if [[ -e $2 ]]; then
+			ListHost="$2"
+			leng="$(cat $2|wc -l)"
+			if [[ "$leng" -eq 0 ]] ; then
+				echo "ERROR: Il file non contiene righe"
+				exit 3
+			fi
+		else
+			echo "ERROR: Il file con la lista degli host non esiste"
+			exit 3
+		fi
+      shift
+      ;;
+    --log | -l)
+		Log_file="$2"
+		touch "$Log_file"
+      shift
+      ;;
+    --dir | -d)
+		LocalLogFolder="$2"
+      shift
+      ;;
+    --help | -h | *)
+      sed -n '2,17p' "$0" | tr -d '#'
+      exit 3
+      ;;
+  esac
+  shift
+done
+
+if [[ ! -d "$LocalLogFolder" ]]; then
+	mkdir -p "$LocalLogFolder"
+fi
+
+while read -r line
+do
+
+	address="$(echo "$line"| awk -F " - " '{print $1}')"
+	remotePath="$(echo "$line"| awk -F " - " '{print $2}')"
+	RemoteHost="$(echo "$line"| awk -F " - " '{print $3}')"
+	Service="$(echo "$line"| awk -F " - " '{print $4}')"
+
+# inizio Copia per Host
+	echo "$giorno - $(date '+%H:%M:%S') - Start Coping from:$RemoteHost IP:$address Log Path:$remotePath"	>> $Log_file
+	
+	RemoteScript "$RemoteHost" "$address" "$remotePath" 
+	CopyLog "$RemoteHost" "$address" "$remotePath" "$Service" "$LocalLogFolder"
+
+	echo -e "$giorno - $(date '+%H:%M:%S') - Finish Coping \n" >> $Log_file
+done < "$ListHost"
+
+
+
